@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ar">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="./style.css">
+<title>Social Engineering Detection System</title>
+
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Social Engineering Detection System</h1>
+      <p class="lead">  Paste a conversation on the left and click “Detect”. Manage the Topic Blacklist (TBL) on the right.</p>
+    </header>
+
+    <main class="card">
+      <label for="textInput">Conversation Text (one message per line):</label>
+      <textarea id="textInput" style="width:70vh;" placeholder="Example: Please send your password to verify your account"></textarea>
+
+      <div class="controls">
+        <button id="detectBtn">Detect</button>
+        <button id="clearBtn" class="secondary">Clear</button>
+        <button id="loadExample" class="secondary">Load Example</button>
+        <button id="exportLog" style="background:#3b3b3b">Export JSON</button>
+      </div>
+
+      <div id="results" class="results"></div>
+      <div id="matchSummary" class="match-details muted"></div>
+    </main>
+
+    <aside class="card">
+      <h3>Topic Blacklist (TBL)</h3>
+      <p class="tiny">Each entry = (Action, Resource, Synonyms)</p>
+
+      <div id="tblList"></div>
+
+      <hr style="margin:12px 0" />
+
+      <div>
+        <label>Add New Entry</label>
+        <input type="text" id="inpAction" placeholder="Action (e.g. send)" />
+        <input type="text" id="inpActionSyn"  placeholder="Action synonyms (send, transfer)" />
+        <input type="text" id="inpResource" placeholder="Resource (e.g. password)" />
+        <input type="text" id="inpResourceSyn"  placeholder="Resource synonyms (pwd, credentials)" />
+        <div style="display:flex; gap:8px; margin-top:6px;">
+          <button id="addTblBtn" style="flex:1">Add TO TBL</button>
+          <button id="resetTblBtn" style="flex:1; background:#777">Reset TBL To Default</button>
+        </div>
+      </div>
+    </aside>
+
+    
+  </div>
+
+<script src="./script.js">
+
+</script>
+</body>
+</html>
