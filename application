@@ -1,0 +1,279 @@
+/*
+  تطبيق JavaScript لتنفيذ الخوارزميات:
+  - TBL: مصفوفة عناصر {action, resource, actionSyn, resourceSyn}
+  - Detection algorithm & MatchTopic algorithm كما في الورقة.
+*/
+
+// TBL ابتدائي — مشتق من Table1 في الورقة + مرادفات توضيحية
+let defaultTBL = [
+  {
+    id: genId(),
+    action: "send",
+    resource: "money",
+    actionSyn: ["send","transfer","wire","remit","pay"],
+    resourceSyn: ["money","cash","funds","payment","amount"]
+  },
+  {
+    id: genId(),
+    action: "send",
+    resource: "sensitive data",
+    actionSyn: ["send","give","provide","share","enter"],
+    resourceSyn: ["password","pass","credentials","ssn","sensitive data","creditcard","credit","card","cvv"]
+  },
+  {
+    id: genId(),
+    action: "call",
+    resource: "number",
+    actionSyn: ["call","ring","phone","contact"],
+    resourceSyn: ["number","phone","tel","mobile"]
+  },
+  {
+    id: genId(),
+    action: "visit",
+    resource: "website",
+    actionSyn: ["visit","go","open","browse"],
+    resourceSyn: ["website","site","url","link","www","http"]
+  }
+];
+
+// حالة TBL الحالية (قابلة للتعديل)
+let TBL = JSON.parse(JSON.stringify(defaultTBL));
+
+/* --- أدوات مساعدة --- */
+function genId(){ return 't_'+Math.random().toString(36).slice(2,9); }
+
+function normalizeToken(tok){
+  // تحويل لحروف صغيرة وإزالة حروف زائدة أساسية
+  if(!tok) return "";
+  tok = tok.toLowerCase();
+  // إزالة علامات ترقيم من الطرفين
+  tok = tok.replace(/^[^\w@#\/.]+|[^\w@#\/.]+$/g, '');
+  // قص انتهاءات إنجليزية شائعة (بسيطة جداً)
+  tok = tok.replace(/(ing|ed|s|es)$/,'');
+  return tok;
+}
+
+function tokenize(line){
+  // نستخدم regex لالتقاط كلمات، أرقام، روابط، رموز البريد
+  // هذا يسمح برؤية: example.com , 091234567 , password123 كتوكنات
+  let tokens = line.match(/\b[\w@#:.\/-]+\b/g) || [];
+  return tokens.map(normalizeToken).filter(Boolean);
+}
+
+function isPhoneNumberToken(tok){
+  // أبسط تقدير: متتالية رقمية بطول >=6
+  return /^\d{6,}$/.test(tok);
+}
+
+function isUrlToken(tok){
+  return tok.includes('.') || tok.startsWith('http') || tok.startsWith('www') || tok.includes('/');
+}
+
+function compareTokenToKeyword(tok, keyword, synonyms){
+  // tok: مُطَبَّع
+  // keyword: كلمة جذرية مثل 'send'
+  // synonyms: مصفوفة مرادفات
+  if(!tok) return false;
+  if(!keyword && (!synonyms || synonyms.length===0)) return false;
+
+  if(tok === keyword) return true;
+  if(synonyms && synonyms.includes(tok)) return true;
+  // احتواء بدلاً من تطابق تام (مثال: 'passwords' بعد التطبيع -> 'password')
+  if(keyword && tok.includes(keyword)) return true;
+  if(synonyms){
+    for(let s of synonyms){
+      if(tok.includes(s)) return true;
+    }
+  }
+  // تحقق خاص بأرقام الهواتف و urls
+  if(isPhoneNumberToken(tok) && (keyword.match(/number|phone|tel|mobile/) || (synonyms||[]).some(s=>/number|phone|tel|mobile/.test(s)))){
+    return true;
+  }
+  if(isUrlToken(tok) && (keyword.match(/website|site|url|link|www|http/) || (synonyms||[]).some(s=>/website|site|url|link|www|http/.test(s)))){
+    return true;
+  }
+  return false;
+}
+
+/* --- خوارزمية MatchTopic كما في الورقة --- */
+function matchTopic(tokens, tblEntry){
+  // تطبيق: للـ i من 0 إلى |tokens|-1
+  //   إذا Compare(tokens[i], n.action) فابحث في j=i+1..|tokens|-1 عن Compare(tokens[j], n.resource)
+  for(let i=0;i<tokens.length;i++){
+    if(compareTokenToKeyword(tokens[i], tblEntry.action, tblEntry.actionSyn.map(normalizeToken))){
+      for(let j=i+1;j<tokens.length;j++){
+        if(compareTokenToKeyword(tokens[j], tblEntry.resource, tblEntry.resourceSyn.map(normalizeToken))){
+          return { matched:true, actionIndex:i, resourceIndex:j };
+        }
+      }
+    }
+  }
+  return { matched:false };
+}
+
+/* --- Detection (scans lines) --- */
+function detect(text){
+  const lines = text.split(/\r?\n/);
+  let matches = []; // نتائج
+  for(let li=0; li<lines.length; li++){
+    const raw = lines[li].trim();
+    if(raw.length === 0) continue;
+    const tokens = tokenize(raw);
+    // افحص كل عنصر في TBL
+    let lineMatched = [];
+    for(let entry of TBL){
+      let res = matchTopic(tokens, entry);
+      if(res.matched){
+        lineMatched.push({
+          entryId: entry.id,
+          entryAction: entry.action,
+          entryResource: entry.resource,
+          actionIndex: res.actionIndex,
+          resourceIndex: res.resourceIndex,
+          actionSyn: entry.actionSyn,
+          resourceSyn: entry.resourceSyn
+        });
+      }
+    }
+    matches.push({ lineIndex: li, rawLine: raw, tokens: tokens, matches: lineMatched });
+  }
+  return matches;
+}
+
+/* --- رندر النتائج في الواجهة --- */
+function renderResults(results){
+  const resultsDiv = document.getElementById('results');
+  resultsDiv.innerHTML = '';
+  let totalAlerts = 0;
+  for(let r of results){
+    const div = document.createElement('div');
+    div.className = 'line';
+    const idx = document.createElement('div');
+    idx.className = 'line index';
+    idx.textContent = (r.lineIndex+1);
+    const txt = document.createElement('div');
+    txt.className = 'text';
+    txt.textContent = r.rawLine;
+
+    div.appendChild(idx);
+    div.appendChild(txt);
+
+    if(r.matches && r.matches.length>0){
+      totalAlerts += r.matches.length;
+      const tag = document.createElement('div');
+      tag.className = 'tag';
+      tag.innerHTML = 'تحذير: '+ r.matches.length + ' احتمال' ;
+      div.appendChild(tag);
+
+      // تفاصيل كل تطابق
+      const details = document.createElement('div');
+      details.className = 'match-details';
+      for(let m of r.matches){
+        const el = document.createElement('div');
+        el.className = 'danger';
+        el.innerHTML = `<strong>تطابق مع TBL:</strong> (action: <em>${m.entryAction}</em>) ، (resource: <em>${m.entryResource}</em>)<br>
+                        أماكن الكلمات في التوكن: action@${m.actionIndex} ، resource@${m.resourceIndex}<br>
+                        <span class="muted">مرادفات الفعل: ${m.actionSyn.join(', ')}</span><br>
+                        <span class="muted">مرادفات المورد: ${m.resourceSyn.join(', ')}</span>`;
+        details.appendChild(el);
+      }
+      div.appendChild(details);
+    } else {
+      const ok = document.createElement('div');
+      ok.className = 'tag ok';
+      ok.textContent = 'بلا إنذار';
+      div.appendChild(ok);
+    }
+
+    resultsDiv.appendChild(div);
+  }
+  const summary = document.getElementById('matchSummary');
+  summary.textContent = `فُحص ${results.length} سطر${results.length===1?'':'/أسطر'}. عدد الإنذارات: ${totalAlerts}.`;
+}
+
+/* --- إدارة واجهة TBL --- */
+function renderTBL(){
+  const container = document.getElementById('tblList');
+  container.innerHTML = '';
+  for(let e of TBL){
+    const el = document.createElement('div');
+    el.className = 'tbl-entry';
+    el.innerHTML = `<strong>فعل:</strong> ${e.action} &nbsp;&nbsp; <strong>مورد:</strong> ${e.resource}
+      <div class="muted">مرادفات الفعل: ${e.actionSyn.join(', ')}</div>
+      <div class="muted">مرادفات المورد: ${e.resourceSyn.join(', ')}</div>
+      <div style="margin-top:8px;display:flex;gap:8px;">
+        <button data-id="${e.id}" class="deleteBtn" style="background:#c33;padding:6px 8px;border-radius:6px;">حذف</button>
+      </div>`;
+    container.appendChild(el);
+  }
+
+  // ربط أزرار الحذف
+  [...container.querySelectorAll('.deleteBtn')].forEach(btn=>{
+    btn.onclick = (ev)=>{
+      const id = btn.getAttribute('data-id');
+      TBL = TBL.filter(x=>x.id !== id);
+      renderTBL();
+    };
+  });
+}
+
+/* --- أحداث الواجهة --- */
+document.getElementById('detectBtn').addEventListener('click', ()=>{
+  const text = document.getElementById('textInput').value;
+  const res = detect(text);
+  renderResults(res);
+});
+
+document.getElementById('clearBtn').addEventListener('click', ()=>{
+  document.getElementById('textInput').value = '';
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('matchSummary').textContent = '';
+});
+
+document.getElementById('loadExample').addEventListener('click', ()=>{
+  const example = [
+    "Hi, this is support. Please send your password so we can verify your account.",
+    "Could you call 0123456789 now?",
+    "Please visit http://fake-bank.example.com and enter your details",
+    "Let's meet tomorrow to discuss the project."
+  ].join('\\n');
+  document.getElementById('textInput').value = example;
+});
+
+document.getElementById('addTblBtn').addEventListener('click', ()=>{
+  const action = document.getElementById('inpAction').value.trim();
+  const actionSyn = document.getElementById('inpActionSyn').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const resource = document.getElementById('inpResource').value.trim();
+  const resourceSyn = document.getElementById('inpResourceSyn').value.split(',').map(s=>s.trim()).filter(Boolean);
+
+  if(!action || !resource){
+    alert('Plz Enter The Verb Or resource ');
+    return;
+  }
+  TBL.push({ id: genId(), action: action.toLowerCase(), resource: resource.toLowerCase(), actionSyn: actionSyn, resourceSyn: resourceSyn });
+  // تنظيف الحقول
+  document.getElementById('inpAction').value = '';
+  document.getElementById('inpActionSyn').value = '';
+  document.getElementById('inpResource').value = '';
+  document.getElementById('inpResourceSyn').value = '';
+  renderTBL();
+});
+
+document.getElementById('resetTblBtn').addEventListener('click', ()=>{
+  if(!confirm('إعادة TBL إلى الافتراضي؟ سيتم حذف التعديلات الحالية.')) return;
+  TBL = JSON.parse(JSON.stringify(defaultTBL));
+  renderTBL();
+});
+
+document.getElementById('exportLog').addEventListener('click', ()=>{
+  const text = document.getElementById('textInput').value;
+  const res = detect(text);
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(res, null, 2));
+  const dlAnchor = document.createElement('a');
+  dlAnchor.setAttribute("href", dataStr);
+  dlAnchor.setAttribute("download", "detection_log.json");
+  dlAnchor.click();
+});
+
+/* --- تهيئة --- */
+renderTBL();
